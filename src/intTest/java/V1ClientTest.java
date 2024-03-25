@@ -9,6 +9,8 @@ import java.util.Set;
 
 import com.authzed.grpcutil.BearerToken;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import io.grpc.ManagedChannel;
@@ -30,9 +32,16 @@ import com.authzed.api.v1.SchemaServiceOuterClass.WriteSchemaRequest;
 import com.authzed.api.v1.PermissionService.Consistency;
 import com.authzed.api.v1.PermissionService.WriteRelationshipsRequest;
 import com.authzed.api.v1.PermissionService.WriteRelationshipsResponse;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 
 public class V1ClientTest {
-	private static final String target = "localhost:50051";
+	private static final String token = generateToken();
+	private static GenericContainer<?> spicedb = new GenericContainer<>("authzed/spicedb")
+			.withExposedPorts(50051, 8080)
+			.withCommand("serve", "--grpc-preshared-key", token)
+			.waitingFor(Wait.forLogMessage(".*grpc server started serving.*", 1));
+	private static String target;
 	private static final String tokenPrefix = "tc_test_token";
 
 	// Write schema
@@ -48,11 +57,21 @@ public class V1ClientTest {
 		return tokenPrefix + random.nextInt(1000);
 	}
 
+	@Before
+	public void setUp() {
+		spicedb.start();
+		target = spicedb.getHost() + ":" + spicedb.getMappedPort(50051);
+	}
+
+	@After
+	public void tearDown() {
+		spicedb.stop();
+	}
+
 	@Test
 	public void testSchemaService() {
 		// Initialize services
 		ManagedChannel channel = ManagedChannelBuilder.forTarget(target).usePlaintext().build();
-		String token = generateToken();
 		SchemaServiceGrpc.SchemaServiceBlockingStub schemaService  = writeTestSchema(token, channel);
 
 		// Read schema
@@ -64,7 +83,6 @@ public class V1ClientTest {
 	public void testCheckPermission() {
 		// Initialize services
 		ManagedChannel channel = ManagedChannelBuilder.forTarget(target).usePlaintext().build();
-		String token = generateToken();
 
 		PermissionsServiceGrpc.PermissionsServiceBlockingStub permissionsService = PermissionsServiceGrpc
 				.newBlockingStub(channel)
@@ -110,7 +128,6 @@ public class V1ClientTest {
 	public void testLookupResources() {
 		// Initialize services
 		ManagedChannel channel = ManagedChannelBuilder.forTarget(target).usePlaintext().build();
-		String token = generateToken();
 		PermissionsServiceGrpc.PermissionsServiceBlockingStub permissionsService = PermissionsServiceGrpc
 				.newBlockingStub(channel)
 				.withCallCredentials(new BearerToken(token));
